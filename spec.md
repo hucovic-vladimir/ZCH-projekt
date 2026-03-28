@@ -7,7 +7,9 @@
 
 ## Block schema
 
-// link block image
+![Block schema](./ZCH.svg)
+
+https://github.com/hucovic-vladimir/ZCH-projekt/blob/main/ZCH.svg
 
 ## I/O specification
 
@@ -61,5 +63,3 @@
 
 ### FSM (not in diagram, connected to everything except memory)
 - Sends/receives internal control signals, keeps state of computation.
-
-
