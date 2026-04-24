@@ -1,0 +1,13 @@
+# Local Python environment and cache
+.venv/
+__pycache__/
+*.pyc
+
+# Verilator build outputs
+obj_dir/
+waves.fst
+
+# Generated test assets and synthesis outputs
+tb/data/generated/
+tb/data/expected/
+build
