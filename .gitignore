@@ -5,9 +5,12 @@ __pycache__/
 
 # Verilator build outputs
 obj_dir/
+obj_dir_saif/
 waves.fst
+waves.saif
 
 # Generated test assets and synthesis outputs
 tb/data/generated/
 tb/data/expected/
+tb/data/actual/
 build

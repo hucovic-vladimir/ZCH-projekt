@@ -36,6 +36,7 @@ module filter_top #(
   filter_pkg::ram_addr_t    cfg_out_addr_w;
   filter_pkg::kernel_t      kernel_w;
   filter_pkg::scale_shift_t scale_shift_w;
+  logic                     abs_result_w;
 
   // input ram signals i/o
   logic                     in_ram_req_w;
@@ -72,6 +73,8 @@ module filter_top #(
   assign output_ready_o = output_ready_q;
   assign error_o = error_q;
   assign _unused_ok = &{1'b0, out_buf_busy_unused_w, out_ram_rdata_unused_w};
+  assign abs_result_w = (filter_sel_w == filter_pkg::EDGE_VERTICAL) ||
+    (filter_sel_w == filter_pkg::EDGE_HORIZONTAL);
 
   always_ff @(posedge clk or negedge rst) begin
     if (!rst) begin
@@ -135,6 +138,7 @@ module filter_top #(
     .kernel_i(kernel_w),
     .window_i(window_w),
     .scale_shift_i(scale_shift_w),
+    .abs_result_i(abs_result_w),
     .pixel_o(conv_pixel_w),
     .pixel_valid_o(conv_pixel_valid_w)
   );

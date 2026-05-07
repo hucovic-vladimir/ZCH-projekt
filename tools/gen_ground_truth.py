@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Ground-truth generator for the ZCH image filter project's testbench."""
+# Ground-truth generator for the testbench.
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +36,11 @@ SCALE_DIVISORS = {
     "horizontal_edge": 1,
 }
 
+ABS_RESULT_FILTERS = {
+    "vertical_edge",
+    "horizontal_edge",
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -44,7 +48,7 @@ def parse_args() -> argparse.Namespace:
         "--input",
         type=Path,
         required=True,
-        help="Path to a 64x64 grayscale image as .npy, .csv, or raw bytes.",
+        help="Path to a 64x64 grayscale image as raw bytes.",
     )
     parser.add_argument(
         "--filter",
@@ -55,25 +59,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        help="Optional output path. Suffix decides format: .npy, .csv, .hex, .json.",
+        help="Optional .hex output path.",
     )
     return parser.parse_args()
 
 
 def load_image(path: Path) -> np.ndarray:
-    if path.suffix == ".npy":
-        image = np.load(path)
-    elif path.suffix == ".csv":
-        image = np.loadtxt(path, delimiter=",", dtype=np.uint8)
-    else:
-        data = np.fromfile(path, dtype=np.uint8)
-        if data.size != 64 * 64:
-            raise ValueError(f"raw input must contain exactly 4096 bytes, got {data.size}")
-        image = data.reshape(64, 64)
-
-    if image.shape != (64, 64):
-        raise ValueError(f"expected a 64x64 image, got {image.shape}")
-    return image.astype(np.uint8, copy=False)
+    data = np.fromfile(path, dtype=np.uint8)
+    if data.size != 64 * 64:
+        raise ValueError(f"raw input must contain exactly 4096 bytes, got {data.size}")
+    return data.reshape(64, 64)
 
 
 def apply_filter(image: np.ndarray, filter_name: str) -> np.ndarray:
@@ -83,27 +78,21 @@ def apply_filter(image: np.ndarray, filter_name: str) -> np.ndarray:
     filtered = signal.correlate2d(image_i16, kernel, mode="valid")
 
     filtered = filtered // divisor
+    if filter_name in ABS_RESULT_FILTERS:
+        filtered = np.abs(filtered)
+
     filtered = np.clip(filtered, 0, 255)
     return filtered.astype(np.uint8)
 
 
 def save_output(path: Path, result: np.ndarray) -> None:
-    if path.suffix == ".npy":
-        np.save(path, result)
-    elif path.suffix == ".csv":
-        np.savetxt(path, result, fmt="%d", delimiter=",")
-    elif path.suffix == ".hex":
-        with path.open("w", encoding="ascii") as handle:
-            for value in result.reshape(-1):
-                handle.write(f"{int(value):02x}\n")
-    elif path.suffix == ".json":
-        payload = {
-            "shape": list(result.shape),
-            "data": result.reshape(-1).tolist(),
-        }
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    else:
+    if path.suffix != ".hex":
         raise ValueError(f"unsupported output suffix: {path.suffix}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="ascii") as handle:
+        for value in result.reshape(-1):
+            handle.write(f"{int(value):02x}\n")
 
 
 def main() -> None:

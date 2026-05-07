@@ -6,10 +6,10 @@ from __future__ import annotations
 import argparse
 import math
 import random
-import struct
 import datetime
-import zlib
 from pathlib import Path
+
+from image_io import validate_pixels, write_hex, write_png, write_raw
 
 
 WIDTH = 64
@@ -17,50 +17,9 @@ HEIGHT = 64
 SEED = datetime.datetime.now().timestamp()
 
 
-def chunk(tag: bytes, payload: bytes) -> bytes:
-    return (
-        struct.pack(">I", len(payload))
-        + tag
-        + payload
-        + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
-    )
-
-
-def write_png(path: Path, pixels: list[int]) -> None:
-    header = b"\x89PNG\r\n\x1a\n"
-    ihdr = struct.pack(">IIBBBBB", WIDTH, HEIGHT, 8, 0, 0, 0, 0)
-
-    rows = bytearray()
-    for y in range(HEIGHT):
-        rows.append(0)
-        start = y * WIDTH
-        rows.extend(pixels[start : start + WIDTH])
-
-    path.write_bytes(
-        header
-        + chunk(b"IHDR", ihdr)
-        + chunk(b"IDAT", zlib.compress(bytes(rows), level=9))
-        + chunk(b"IEND", b"")
-    )
-
-
-def write_raw(path: Path, pixels: list[int]) -> None:
-    path.write_bytes(bytes(pixels))
-
-
-def write_hex(path: Path, pixels: list[int]) -> None:
-    path.write_text("".join(f"{value:02x}\n" for value in pixels), encoding="ascii")
-
-
 def save_pattern(base_dir: Path, name: str, pixels: list[int]) -> None:
-    if len(pixels) != WIDTH * HEIGHT:
-        raise ValueError(f"{name}: expected {WIDTH * HEIGHT} pixels, got {len(pixels)}")
-
-    for value in pixels:
-        if not 0 <= value <= 255:
-            raise ValueError(f"{name}: pixel out of range: {value}")
-
-    write_png(base_dir / f"{name}.png", pixels)
+    validate_pixels(pixels, WIDTH * HEIGHT)
+    write_png(base_dir / f"{name}.png", WIDTH, HEIGHT, pixels)
     write_raw(base_dir / f"{name}.raw", pixels)
     write_hex(base_dir / f"{name}.hex", pixels)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate functional-test expected outputs for all images and filters."""
+# Generate functional-test expected outputs for all images and filters.
 
 from __future__ import annotations
 
@@ -23,6 +23,13 @@ def parse_args() -> argparse.Namespace:
         default=Path("tb/data/expected"),
         help="Directory where 62x62 expected .hex files will be written.",
     )
+    parser.add_argument(
+        "--input",
+        action="append",
+        type=Path,
+        default=[],
+        help="Additional 64x64 .raw input image to include.",
+    )
     return parser.parse_args()
 
 
@@ -30,7 +37,7 @@ def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    input_paths = sorted(args.input_dir.glob("*.raw"))
+    input_paths = sorted(args.input_dir.glob("*.raw")) + args.input
     if not input_paths:
         raise FileNotFoundError(f"no .raw images found in {args.input_dir}")
 

@@ -6,9 +6,10 @@ module filter_top_tb;
   localparam int INPUT_PIXELS = filter_pkg::IN_IMAGE_W * filter_pkg::IN_IMAGE_H;
   localparam int OUTPUT_PIXELS = filter_pkg::OUT_IMAGE_W * filter_pkg::OUT_IMAGE_H;
   localparam int MAX_WAIT_CYCLES = 12000;
-  localparam bit TRACE_STREAM = 1'b0;
-  localparam int NUM_IMAGES = 8;
+  localparam bit DEBUG = 1'b0;
+  localparam int NUM_IMAGES = 9;
   localparam int NUM_FILTERS = 4;
+  localparam int unsigned ADDR_RANDOM_SEED = 32'h42424242;
 
   logic clk;
   logic rst;
@@ -43,7 +44,7 @@ module filter_top_tb;
     static int conv_valid_count = 0;
     static int write_req_count = 0;
 
-    if (TRACE_STREAM && dut.conv_pixel_valid_w && (conv_valid_count < 8)) begin
+    if (DEBUG && dut.conv_pixel_valid_w && (conv_valid_count < 8)) begin
       $display(
           "conv[%0d] valid pixel=%02x time=%0t",
           conv_valid_count,
@@ -53,7 +54,7 @@ module filter_top_tb;
       conv_valid_count++;
     end
 
-    if (TRACE_STREAM && dut.out_ram_req_w && dut.out_ram_we_w && (write_req_count < 8)) begin
+    if (DEBUG && dut.out_ram_req_w && dut.out_ram_we_w && (write_req_count < 8)) begin
       $display(
           "write[%0d] addr=%0d data=%02x time=%0t",
           write_req_count,
@@ -113,22 +114,45 @@ module filter_top_tb;
       5: image_name = "seeded_noise";
       6: image_name = "vertical_bars";
       7: image_name = "vertical_gradient";
+      8: image_name = "lenna_64x64_gray";
       default: image_name = "unknown";
     endcase
+  endfunction
+
+  function automatic string image_input_file(
+      input int unsigned image_idx
+  );
+    if (image_idx == 8) begin
+      image_input_file = "tb/data/lenna_64x64_gray.hex";
+    end else begin
+      image_input_file = $sformatf("tb/data/generated/%s.hex", image_name(image_idx));
+    end
+  endfunction
+
+  function automatic filter_pkg::ram_addr_t select_test_addr(
+      input int unsigned test_idx,
+      input int unsigned max_addr
+  );
+    begin
+      case (test_idx)
+        // test boundary addresses for first 2 cases, then randomize
+        0: select_test_addr = '0;
+        1: select_test_addr = filter_pkg::ram_addr_t'(max_addr);
+        default: select_test_addr = filter_pkg::ram_addr_t'($urandom_range(max_addr, 0));
+      endcase
+    end
   endfunction
 
   function automatic filter_pkg::ram_addr_t test_in_addr(
       input int unsigned test_idx
   );
-    test_in_addr = filter_pkg::ram_addr_t'(
-        (32 + (test_idx * 131)) % (int'(filter_pkg::MAX_IN_ADDR) + 1));
+    test_in_addr = select_test_addr(test_idx, int'(filter_pkg::MAX_IN_ADDR));
   endfunction
 
   function automatic filter_pkg::ram_addr_t test_out_addr(
       input int unsigned test_idx
   );
-    test_out_addr = filter_pkg::ram_addr_t'(
-        (1024 + (test_idx * 257)) % (int'(filter_pkg::MAX_OUT_ADDR) + 1));
+    test_out_addr = select_test_addr(test_idx, int'(filter_pkg::MAX_OUT_ADDR));
   endfunction
 
   task automatic load_memories(
@@ -157,6 +181,29 @@ module filter_top_tb;
     end
   endtask
 
+  task automatic dump_actual_image(
+      input string actual_file,
+      input filter_pkg::ram_addr_t out_base_addr
+  );
+    int idx;
+    int out_base_int;
+    int file;
+    begin
+      out_base_int = int'(out_base_addr);
+      file = $fopen(actual_file, "w");
+
+      if (file == 0) begin
+        $fatal(1, "failed to open actual output file: %s", actual_file);
+      end
+
+      for (idx = 0; idx < OUTPUT_PIXELS; idx++) begin
+        $fdisplay(file, "%02x", dut.output_ram_u.mem[out_base_int + idx]);
+      end
+
+      $fclose(file);
+    end
+  endtask
+
   task automatic run_filter_test(
       input int unsigned test_idx,
       input int unsigned image_idx,
@@ -172,6 +219,7 @@ module filter_top_tb;
     string image_display_name;
     string input_file;
     string expected_file;
+    string actual_file;
     filter_pkg::filter_type_e filter_sel;
     filter_pkg::ram_addr_t in_base_addr;
     filter_pkg::ram_addr_t out_base_addr;
@@ -179,9 +227,11 @@ module filter_top_tb;
       filter_sel = filter_from_index(filter_idx);
       filter_display_name = filter_name(filter_sel);
       image_display_name = image_name(image_idx);
-      input_file = $sformatf("tb/data/generated/%s.hex", image_display_name);
+      input_file = image_input_file(image_idx);
       expected_file = $sformatf("tb/data/expected/%s_%s.hex", image_display_name,
                                 filter_file_name(filter_sel));
+      actual_file = $sformatf("tb/data/actual/%s_%s.hex", image_display_name,
+                              filter_file_name(filter_sel));
       in_base_addr = test_in_addr(test_idx);
       out_base_addr = test_out_addr(test_idx);
       out_base_int = int'(out_base_addr);
@@ -194,6 +244,7 @@ module filter_top_tb;
                filter_display_name);
       end
 
+      // Set up configuration module
       filter_selection_i = filter_sel;
       in_addr_i = in_base_addr;
       out_addr_i = out_base_addr;
@@ -202,6 +253,7 @@ module filter_top_tb;
       @(posedge clk);
       cfg_write_en_i = 1'b0;
 
+      // Start the computation
       @(posedge clk);
       enable_i = 1'b1;
 
@@ -213,6 +265,7 @@ module filter_top_tb;
       saw_busy = 1'b0;
       saw_error = 1'b0;
 
+      // Wait for output ready signal or timeout
       while (!output_ready_o && (cycles_waited < MAX_WAIT_CYCLES)) begin
         @(posedge clk);
         cycles_waited++;
@@ -252,6 +305,9 @@ module filter_top_tb;
                filter_display_name);
       end
 
+      dump_actual_image(actual_file, out_base_addr);
+
+      // Compare expected and actual RAM content
       for (idx = 0; idx < OUTPUT_PIXELS; idx++) begin
         if (dut.output_ram_u.mem[out_base_int + idx] !== expected_image[idx]) begin
           mismatches++;
@@ -275,19 +331,22 @@ module filter_top_tb;
       end
 
       $display(
-          "PASS: %s/%s functional test completed in %0d cycles (in_addr=%0d out_addr=%0d)",
+          "PASS: %s/%s functional test completed in %0d cycles.",
           image_display_name,
           filter_display_name,
-          cycles_waited,
-          int'(in_base_addr),
-          out_base_int
+          cycles_waited
       );
     end
   endtask
   
   initial begin
+`ifdef SAIF_TRACE
+    $dumpfile("activity.saif");
+    $dumpvars(0, filter_top_tb.dut);
+`else
     $dumpfile("waves.fst");
     $dumpvars(0, filter_top_tb);
+`endif
   end
 
   initial begin
@@ -302,6 +361,9 @@ module filter_top_tb;
     in_addr_i = '0;
     out_addr_i = '0;
     enable_i = 1'b0;
+
+    void'($urandom(ADDR_RANDOM_SEED));
+    void'($system("mkdir -p tb/data/actual"));
 
     repeat (4) @(posedge clk);
     rst = 1'b1;
